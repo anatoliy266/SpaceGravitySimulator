@@ -1,58 +1,100 @@
-﻿using System;
+﻿using SpaceGravitySimulator.Components;
+using System;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Text;
 
 namespace SpaceGravitySimulator.Services
 {
-    internal class GravityService
+    public class GravityService<T> where T : notnull, INumber<T>, IConvertible
     {
-        
-        public void Update(World world)
+
+        public void Update(World<T> world)
         {
+            var step = Vector<T>.Count;
             var G = world.GetGravityConstant();
-            var ids = world.GetEntitiesWithPositionAndMass();
+            var epsilon = T.CreateChecked(0.0001f);
+            var n = world.GetActiveEntities();
+
+            var vG = new Vector<T>(G);
+            var vEpsilon = new Vector<T>(T.CreateChecked(0.01f));
+            var vOne = new Vector<T>(T.CreateChecked(1.0f));
+
             
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            foreach (var id in ids)
+            var coords = world.Components.GetRawCoordinates(world.GetActiveEntities());
+            var coordX = coords.X;
+            var coordY = coords.Y;
+            var masses = world.Components.GetMasses(world.GetActiveEntities());
+            var accs = world.Components.GetRawAccelerations(world.GetActiveEntities());
+            var accX = accs.X;
+            var accY = accs.Y;
+
+            accX.Clear();
+            accY.Clear();
+
+
+            var vLimit = new Vector<float>(0.01f);
+            var masks = new Vector<T>[step];
+            for (int offset = 0; offset < step; offset++)
             {
-                world.TryGetPosition(id, out var pos1);
-                world.TryGetMass(id, out var mass1);
-                world.TryGetDirection(id, out var direction);
-                var tempDir = Vector2.Zero;
-                foreach (var i in ids)
-                {
-                    if (i == id) continue;
-                    world.TryGetPosition(i, out var pos2);
-                    world.TryGetMass(i, out var mass2);
-
-                    var dx = pos2.X - pos1.X;
-                    var dy = pos2.Y - pos1.Y;
-
-                    var r2 = dx * dx + dy * dy;
-                    if (dx * dx + dy * dy < 0.1f) continue;
-                    var r = (float)Math.Sqrt(r2);
-
-                    var gravityPower = (G * (mass1.Val * mass2.Val) / r2);
-
-                    var xnorm = dx / r;
-                    var ynorm = dy / r;
-
-                    var dirVec = new Vector2 { X = xnorm*gravityPower, Y = ynorm*gravityPower };
-                    dirVec /= mass1.Val;
-                    tempDir += dirVec;
-                }
-                direction.Vector += tempDir;
-                world.SetDirection(id, direction);
+                var values = new T[step];
+                for (int k = 0; k < step; k++)
+                    values[k] = (k == offset) ? T.Zero : T.One;
+                masks[offset] = new Vector<T>(values);
             }
+
+            for (var i = 0; i < n; i++)
+            {
+                var vMassA = new Vector<T>(masses[i]);
+                var vXA = new Vector<T>(coordX[i]);
+                var vYA = new Vector<T>(coordY[i]);
+
+                var vTotalAccX = Vector<T>.Zero;
+                var vTotalAccY = Vector<T>.Zero;
+
+                var j = 0;
+                for (; j < n - step; j += step)
+                {
+                    var vMassB = new Vector<T>(masses.Slice(j));
+                    var vXB = new Vector<T>(coordX.Slice(j));
+                    var vYB = new Vector<T>(coordY.Slice(j));
+
+                    var vDX = vXB - vXA;
+                    var vDY = vYB - vYA;
+
+                    var vDistSq = (vDX * vDX) + (vDY * vDY) + vEpsilon;
+
+                    var vInvDist = Vector.SquareRoot(vOne / vDistSq);
+                    var vMag = (vG * vMassB / vDistSq) * vInvDist;
+
+                    if (i >= j && i < j + step)
+                    {
+                        int offset = i - j;
+                        vMag *= masks[offset];
+                    }
+
+                    vTotalAccX += vDX * vMag;
+                    vTotalAccY += vDY * vMag;
+                }
+
+                var totalAccX = Vector.Sum(vTotalAccX);
+                var totalAccY = Vector.Sum(vTotalAccY);
+
+                for (; j < n; j++)
+                {
+                    if (j == i) continue;
+                    var dx = coordX[j] - coordX[i];
+                    var dy = coordY[j] - coordY[i];
+                    var distSq = (dx * dx) + (dy * dy) + epsilon;
+                    var invDist = T.CreateChecked(1.0f) / T.CreateChecked(Math.Sqrt(double.CreateChecked<T>(distSq)));
+                    var mag = (G * masses[j] / distSq) * invDist;
+                    totalAccX += dx * mag;
+                    totalAccY += dy * mag;
+                }
+                accX[i] = totalAccX;
+                accY[i] = totalAccY;
+            }
+
         }
     }
 }

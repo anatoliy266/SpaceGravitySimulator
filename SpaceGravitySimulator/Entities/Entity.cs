@@ -4,7 +4,7 @@ using System.Text;
 
 namespace SpaceGravitySimulator.Entities
 {
-    internal class Entity
+    public ref struct Entity
     {
         public int Id { get; set; }
     }

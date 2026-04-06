@@ -1,79 +1,100 @@
-﻿using SpaceGravitySimulator;
-using SpaceGravitySimulator.Services;
-using SpaceGravitySimulator.Entities;
+﻿using Raylib_cs;
+using SpaceGravitySimulator;
 using SpaceGravitySimulator.Components;
+using SpaceGravitySimulator.Entities;
+using SpaceGravitySimulator.Services;
+using SpaceGravitySimulator.Services.Visualization;
 using System.Numerics;
 using System.Runtime.Intrinsics.X86;
 
 var cnt = Vector<float>.Count;
 
+var world = new World<double>(10000.0f, 10000.0f, 0.0001f);
+var movementSystem = new MovementService<double>(10000);
+var gravitySystem = new GravityService<double>();
+var visualisationSystem = new VisualizationService<double>(1000, 1000);
 
-var world = new World();
-var movementSystem = new MovementService();
-var gravitySystem = new GravityService();
-var visualisationSystem = new VisualizationService(800, 600);
-visualisationSystem.CreateWorld();
+//3 ТЕЛА, ДОЛЖЕН ВЫПИСЫВАТЬ ВОСЬМЕРКИ, В ПРИНЦИПЕ ВЫПИСЫВАЕТ, НО НЕДОЛГО
+//double[] x = { 0.970, -0.970, 0.0 };
+//double[] y = { -0.243, 0.243, 0.0 };
+//double[] vx = { 0.466, 0.466, -0.932 };
+//double[] vy = { 0.433, 0.433, -0.866 };
+//for (int i = 0; i < 3; i++)
+//{
+//    var e = world.CreateEntity();
+//    world.SetPosition(e.Id, x[i] * 100 + 1000, y[i] * 100 + 1000); // масштабируй под экран
+//    world.SetMass(e.Id, 60000.0);
+//    world.SetVelocity(e.Id, vx[i] * 10, vy[i] * 10); // подбери масштаб скорости
+//}
 
-// ========== НАСТРОЙКИ (работают без timeStep) ==========
-float G = world.GetGravityConstant();     // гравитационная постоянная (подобрана)
-float sunMass = 1000000f;      // масса Солнца
-Vector2 sunPos = new Vector2(500, 500);
+//ТИПА СОЛНЕЧНАЯ СИСТЕМА
+//double[] x = { 0.0, 0.387, 0.723, 1.0, 1.524, 5.203, 9.537, 19.191, 30.069 };
+//double[] y = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+//double[] vx = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+//double[] vy = { 0.0, 1.607, 1.176, 1.0, 0.810, 0.438, 0.324, 0.228, 0.182 };
+//double[] masses = { 100000.0, 0.055, 0.815, 1.0, 0.107, 317.8, 95.2, 14.5, 17.1 };
 
-// Солнце
-var sun = world.CreateEntity();
-world.SetPosition(sun.Id, new Position() { X = 500, Y = 500 });
-world.SetDirection(sun.Id, new Direction() { Vector = Vector2.Zero });
-world.SetMass(sun.Id, new Mass() { Val = (int)sunMass });
+//for (int i = 0; i < x.Length; i++)
+//{
+//    var e = world.CreateEntity();
+//    world.SetPosition(e.Id, x[i] * 15 + 1000, y[i] * 15 + 1000);
+//    world.SetMass(e.Id, masses[i]);
+//    world.SetVelocity(e.Id, vx[i] / 300, vy[i] / 30); // множитель скорости подобран для красивой анимации
+//}
 
-// Функция создания планеты
-void CreatePlanet(float distance, int mass, float angleDeg)
+// СОЛНЕЧНАЯ СИСТЕМА — ПРАВИЛЬНЫЕ СКОРОСТИ
+
+double G = world.GetGravityConstant();        // =1
+double M_sun = 100000.0;                     // масса Солнца
+double scale = 650.0;                         // 1 а.е. в пикселях
+double centerX = 1000.0, centerY = 1000.0;
+
+double[] distAU = { 0.0, 0.387, 0.723, 1.0, 1.524, 5.203, 9.537, 19.191, 30.069 };
+double[] masses = { M_sun, 0.055, 0.815, 1.0, 0.107, 317.8, 95.2, 14.5, 17.1 };
+
+// Множитель скорости (подбери вручную, если нужно)
+double speedFactor = 0.7;   // <--- МЕНЯЙ ЭТО ЧИСЛО (0.5, 0.8, 1.2...)
+
+for (int i = 0; i < distAU.Length; i++)
 {
-    float angleRad = angleDeg * MathF.PI / 180f;
-    Vector2 offset = new Vector2(MathF.Cos(angleRad), MathF.Sin(angleRad)) * distance;
-    Vector2 position = sunPos + offset;
+    var e = world.CreateEntity();
+    double r_px = distAU[i] * scale;
+    double x = centerX + r_px;
+    double y = centerY;
+    world.Components.SetPosition(e.Id, x, y);
+    world.Components.SetMass(e.Id, masses[i]);
 
-    // Касательная скорость (перпендикуляр к радиусу)
-    Vector2 tangent = new Vector2(-offset.Y, offset.X);
-    float orbitalSpeed = MathF.Sqrt(G * sunMass / distance);
-    Vector2 velocity = Vector2.Normalize(tangent) * orbitalSpeed;
+    if (i == 0)  // Солнце
+    {
+        world.Components.SetVelocity(e.Id, 0.0, 0.0);
+        continue;
+    }
 
-    var planet = world.CreateEntity();
-    world.SetPosition(planet.Id, new Position() { X = position.X, Y = position.Y });
-    world.SetDirection(planet.Id, new Direction() { Vector = velocity });
-    world.SetMass(planet.Id, new Mass() { Val = mass });
+    // Круговая скорость в твоих единицах
+    double v_circ = Math.Sqrt(G * M_sun / r_px) * speedFactor;
+    world.Components.SetVelocity(e.Id, 0.0, v_circ);
 }
 
-// ========== ПЛАНЕТЫ (реальные пропорции, но влезают в экран) ==========
-CreatePlanet(65f, 10, 0);   // Меркурий
-CreatePlanet(90f, 20, 30);   // Венера
-CreatePlanet(120f, 30, 60);   // Земля
-CreatePlanet(150f, 15, 90);   // Марс
-CreatePlanet(220f, 200, 120);  // Юпитер
-CreatePlanet(280f, 180, 150);  // Сатурн
-CreatePlanet(340f, 80, 180);  // Уран
-CreatePlanet(400f, 75, 210);  // Нептун
-CreatePlanet(450f, 5, 240);  // Плутон
-
-// ========== ЗАПУСК ==========
 while (!visualisationSystem.ShouldClose())
 {
-    gravitySystem.Update(world);
-    movementSystem.Update(world);
+    var frametime = Raylib.GetFrameTime() * world.GetTimeScale();
+    var safeStep = 0.01f;
+
+    int subSteps = (int)Math.Ceiling(frametime / safeStep);
+    if (subSteps <= 0) subSteps = 1;
+
+    var stepDt = frametime / subSteps;
+
+    
+    
+    for (int i = 0; i < subSteps; i++)
+    {
+        movementSystem.HalfStep(world, stepDt);
+        gravitySystem.Update(world);
+        movementSystem.SecondHalf(world, stepDt);
+    }
     visualisationSystem.Update(world);
+    //uiSystem.Update(world);
+    //uiSystem.Draw();
 }
 
-
-
-//using SpaceGravitySimulator;
-//using SpaceGravitySimulator.Services;
-//using SpaceGravitySimulator.Entities;
-//using SpaceGravitySimulator.Components;
-//using System.Numerics;
-
-//var world = new World();
-//world.WorldWidth = 6000.0f;
-//world.WorldHeight = 6000.0f;
-//var movementSystem = new MovementService();
-//var gravitySystem = new GravityService();
-//var visualisationSystem = new VisualizationService(1000, 1000);
-//visualisationSystem.CreateWorld();

@@ -1,51 +1,54 @@
 ﻿using Raylib_cs;
 using SpaceGravitySimulator.Components;
+using SpaceGravitySimulator.Services.Visualization;
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Text;
 
 namespace SpaceGravitySimulator.Services
 {
-    internal class VisualizationService
+    internal class VisualizationService<T> where T : notnull, INumber<T>, IConvertible
     {
-        private int _width, _height;
-        private float scaleX, scaleY;
+        private readonly WindowManager _window;
+        private readonly CameraController<T> _cameraController;
+        private readonly TrailRenderer _trailManager;
+        private readonly EntityRenderer _entityRenderer;
+        private readonly UIService<T> _uiService;
+
         public VisualizationService(int width, int height)
         {
-            _width = width;
-            _height = height;
+            _window = new WindowManager(width, height, "Gravity Simulation");
+            _cameraController = new CameraController<T>(T.CreateChecked(width), T.CreateChecked(height));
+            _trailManager = new TrailRenderer(200, 500, 3);
+            _entityRenderer = new EntityRenderer();
+            _uiService = new UIService<T>(width, height);
         }
 
-        public void Update(World world)
+        public void Update(World<T> world)
         {
-            float scaleX = (float)_width / world.WorldWidth;
-            float scaleY = (float)_height / world.WorldHeight;
-            Raylib.ClearBackground(Color.White);
-            Raylib.BeginDrawing();
-            foreach (var id in world.GetEntitiesWithPositionAndMass())
-            {
-                world.TryGetPosition(id, out var position);
-                world.TryGetMass(id, out var mass);
+            var n = world.GetActiveEntities();
+            var coords = world.Components.GetRawCoordinates(n);
+            var coordX = coords.X;
+            var coordY = coords.Y;
+            var masses = world.Components.GetMasses(n);
 
-                float screenX = position.X * scaleX;
-                float screenY = position.Y * scaleY;
+            _cameraController.Update();
+            _trailManager.Update(coordX, coordY, masses, n);
+            _uiService.Update(world);
 
-                float radius = 2f + (float)Math.Log10(mass.Val + 1) * 3f;
+            _window.BeginDrawing();
+            _window.ClearBackground(Color.White);
+            _window.BeginMode2D(_cameraController.Camera);
 
-                float hue = (id * 137.5f) % 360.0f;
-                Color planetColor = Raylib.ColorFromHSV(hue, 0.8f, 0.9f);
+            _trailManager.Render();
+            _entityRenderer.Render(coordX, coordY, masses, n);
 
-                Raylib.DrawCircle((int)screenX, (int)screenY, radius, planetColor);
-            }
-            Raylib.EndDrawing();
+            _window.EndMode2D();
+            _uiService.Draw();
+            _window.EndDrawing();
         }
 
-        public void CreateWorld()
-        {
-            Raylib.InitWindow(_width, _height, "Gravity simulation");
-        }
-        public bool ShouldClose() => Raylib.WindowShouldClose();
-        public void Close() => Raylib.CloseWindow();
-
+        public bool ShouldClose() => _window.ShouldClose();
     }
 }
